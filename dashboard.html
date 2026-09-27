@@ -542,7 +542,7 @@
                     const prompt = `I just uploaded my marks for ${newRecord.exam} ${newRecord.year}. Give me a brief, one-paragraph analysis of my performance based on this new data. Be direct and point out my strongest and weakest areas.`;
 
                     try {
-                         const result = await this.gradioClient.predict("/predict", [
+                         const result = await this.gradioClient.predict("/generate_ai_response", [
                             prompt,
                             [], // No history needed for the brief
                             JSON.stringify(studentData)
@@ -713,9 +713,9 @@
                         }
 
                         // Call the Gradio Space predict function
-                        const result = await this.gradioClient.predict("/predict", [
+                        const result = await this.gradioClient.predict("/generate_ai_response", [
                             userMsg,
-                            history,
+                            JSON.stringify(history),
                             JSON.stringify(studentData) // Pass as string if backend expects stringified JSON
                         ]);
                         
