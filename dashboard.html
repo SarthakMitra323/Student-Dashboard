@@ -47,6 +47,7 @@
                     boxShadow: {
                         'glow': '0 0 40px rgba(129, 140, 248, 0.1)',
                         'accent': '0 4px 20px rgba(129, 140, 248, 0.25)',
+                        'drawer': '-10px 0 40px rgba(0, 0, 0, 0.5)',
                     }
                 }
             }
@@ -135,6 +136,31 @@
         .invert-logo {
             filter: invert(1) brightness(2);
         }
+        
+        /* AI Chat bubbles */
+        .msg-assistant {
+            background-color: theme('colors.appElevated');
+            border: 1px solid theme('colors.appBorder');
+            border-bottom-left-radius: 0;
+        }
+        .msg-user {
+            background-color: theme('colors.accent');
+            color: white;
+            border-bottom-right-radius: 0;
+        }
+        
+        /* Typing indicator dots */
+        .typing-dot {
+            animation: typing 1.4s infinite ease-in-out;
+            fill: theme('colors.textMuted');
+        }
+        .typing-dot:nth-child(1) { animation-delay: 0s; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
     </style>
 
     <!-- Chart.js -->
@@ -142,6 +168,9 @@
     
     <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Marked for Markdown Parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -157,7 +186,6 @@
             appId: "1:516488793550:web:2a445aa6f8221daab6af9f",
             measurementId: "G-W2H6RY4QCS"
         };
-
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -221,7 +249,17 @@
 
                 charts: { trend: null, comparison: null },
 
-                init() {
+                // --- AI Chatbot State ---
+                isChatOpen: false,
+                chatInput: '',
+                isAiTyping: false,
+                chatMessages: [
+                    { role: 'assistant', content: "Hello! I am Nexus, your AI academic tutor. How can I help you improve today?" }
+                ],
+                gradioClient: null,
+                recentAnalysis: null, // Stores the AI analysis after upload
+
+                async init() {
                     const checkFb = setInterval(() => {
                         if (window.auth && window.fb?.onAuthStateChanged) {
                             clearInterval(checkFb);
@@ -252,9 +290,17 @@
                             }
                         });
                     });
+                    
+                    // Pre-load Gradio client
+                    try {
+                        const { client } = await import("https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js");
+                        this.gradioClient = await client("SarthakMitra/nexus-ai");
+                        console.log("Nexus AI connected successfully.");
+                    } catch(e) {
+                        console.error("Failed to connect to Nexus AI:", e);
+                    }
                 },
                 
-                // --- GSAP Animations ---
                 animateEntrance() {
                     gsap.fromTo('.nav-item', 
                         { x: -20, opacity: 0 }, 
@@ -290,8 +336,17 @@
                         }
                     });
                 },
+                
+                toggleChat() {
+                    this.isChatOpen = !this.isChatOpen;
+                    if (this.isChatOpen) {
+                        this.$nextTick(() => {
+                            this.scrollToBottom();
+                            document.getElementById('chat-input').focus();
+                        });
+                    }
+                },
 
-                // --- Auth ---
                 async processEmailAuth() {
                     this.isProcessing = true;
                     try {
@@ -325,21 +380,24 @@
                     return 'Authentication error occurred.';
                 },
 
-                // --- UI ---
                 notify(msg, type = 'success') {
                     this.notification = { show: true, msg, type };
                     setTimeout(() => { this.notification.show = false; }, 3500);
                 },
                 navTo(view) {
-                    if(this.currentView !== view) this.currentView = view;
+                    if(this.currentView !== view) {
+                        this.currentView = view;
+                        this.recentAnalysis = null; // Clear analysis when navigating away
+                    }
                 },
                 resetState() {
                     this.user = null; this.userId = null;
                     this.academicRecords = [];
                     this.profile = { name: '', class: '', section: '', roll: '' };
+                    this.chatMessages = [{ role: 'assistant', content: "Hello! I am Nexus, your AI academic tutor. How can I help you improve today?" }];
+                    this.recentAnalysis = null;
                 },
 
-                // --- Data ---
                 get pRef() { return window.fb.doc(window.db, `artifacts/${window.appId}/users/${this.userId}/profile/main`); },
                 get rRef() { return window.fb.collection(window.db, `artifacts/${window.appId}/users/${this.userId}/results`); },
 
@@ -403,6 +461,7 @@
                     if (!this.userId || !this.validateEntry()) return;
                     
                     this.isProcessing = true;
+                    this.recentAnalysis = null; // Reset previous analysis
                     try {
                         const existing = this.academicRecords.find(r => r.year === this.entryForm.year && r.exam === this.entryForm.exam);
                         const id = existing ? existing.id : crypto.randomUUID();
@@ -439,17 +498,62 @@
                         this.notify('Record updated successfully.');
                         this.setupInitialComparison(); // Re-calc default comparison
                         
+                        // Navigate to history to see the new record and analysis
+                        this.navTo('history');
+                        
+                        // Trigger AI Analysis for the new record
+                        this.generateAnalysis(payload);
+                        
                         // Reset form visually
                         this.entryForm.subjects.forEach(s => s.marks = '');
-                        this.navTo('history');
                         
                     } catch (e) {
                         this.notify('Error saving record.', 'error');
+                        console.error(e);
                     } finally {
                         this.isProcessing = false;
                     }
                 },
                 
+                async generateAnalysis(newRecord) {
+                    if(!this.gradioClient) return;
+                    
+                    this.recentAnalysis = { loading: true, content: '' };
+                    
+                    let marksObj = {};
+                    newRecord.subjects.forEach(sub => {
+                        marksObj[sub.name] = `${sub.obtained}/${sub.max}`;
+                    });
+                    
+                    let prevOverall = "N/A";
+                    // Find a previous record to compare against if possible
+                    const otherRecords = this.timelineData.filter(r => r.id !== newRecord.id);
+                    if(otherRecords.length > 0) {
+                        prevOverall = otherRecords[0].percentage.toFixed(2) + "%";
+                    }
+
+                    const studentData = {
+                        name: this.profile?.name || 'Student',
+                        current_overall: newRecord.percentage.toFixed(2) + "%",
+                        previous_overall: prevOverall,
+                        marks: marksObj
+                    };
+
+                    const prompt = `I just uploaded my marks for ${newRecord.exam} ${newRecord.year}. Give me a brief, one-paragraph analysis of my performance based on this new data. Be direct and point out my strongest and weakest areas.`;
+
+                    try {
+                         const result = await this.gradioClient.predict("/predict", [
+                            prompt,
+                            [], // No history needed for the brief
+                            JSON.stringify(studentData)
+                        ]);
+                        this.recentAnalysis = { loading: false, content: result.data[0] };
+                    } catch (error) {
+                        console.error("AI Analysis Error:", error);
+                        this.recentAnalysis = { loading: false, content: "Nexus AI is currently unavailable to analyze this result." };
+                    }
+                },
+
                 removeRecord(id) {
                     this.deleteModal = { show: true, id };
                 },
@@ -464,6 +568,7 @@
                         this.notify('Record removed.');
                         this.setupInitialComparison();
                         this.deleteModal = { show: false, id: null };
+                        this.recentAnalysis = null;
                     } catch(e) {
                         this.notify('Could not remove record.', 'error');
                     } finally {
@@ -558,8 +663,92 @@
 
                     return { base, target, overallDiff: target.percentage - base.percentage, subjects };
                 },
+                
+                async sendChatMessage() {
+                    if (!this.chatInput.trim() || this.isAiTyping) return;
+                    
+                    const userMsg = this.chatInput.trim();
+                    
+                    // Add user message to UI
+                    this.chatMessages.push({ role: 'user', content: userMsg });
+                    this.chatInput = '';
+                    this.isAiTyping = true;
+                    
+                    this.scrollToBottom();
 
-                // --- Charts ---
+                    try {
+                        // Gather Student Data Context from the Dashboard
+                        let marksObj = {};
+                        let currentOverall = "N/A";
+                        let previousOverall = "N/A";
+
+                        if (this.latestRecord) {
+                            currentOverall = this.latestRecord.percentage.toFixed(2) + "%";
+                            (this.latestRecord.subjects || []).forEach(sub => {
+                                marksObj[sub.name] = `${sub.obtained}/${sub.max}`;
+                            });
+                        }
+                        
+                        if (this.priorRecord) {
+                            previousOverall = this.priorRecord.percentage.toFixed(2) + "%";
+                        }
+
+                        const studentData = {
+                            name: this.profile?.name || 'Student',
+                            current_overall: currentOverall,
+                            previous_overall: previousOverall,
+                            marks: marksObj
+                        };
+
+                        // Format History for the Gradio API 
+                        const history = this.chatMessages.slice(0, -1).map(msg => ({
+                            role: msg.role === 'assistant' ? 'assistant' : 'user',
+                            content: msg.content
+                        }));
+                        
+                        // Dynamically import if not already loaded (fallback)
+                        if(!this.gradioClient) {
+                             const { client } = await import("https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js");
+                             this.gradioClient = await client("SarthakMitra/nexus-ai");
+                        }
+
+                        // Call the Gradio Space predict function
+                        const result = await this.gradioClient.predict("/predict", [
+                            userMsg,
+                            history,
+                            JSON.stringify(studentData) // Pass as string if backend expects stringified JSON
+                        ]);
+                        
+                        // Append AI response
+                        this.chatMessages.push({ role: 'assistant', content: result.data[0] });
+
+                    } catch (error) {
+                        console.error("AI Generation Error:", error);
+                        this.chatMessages.push({ 
+                            role: 'assistant', 
+                            content: 'Sorry, I am having trouble connecting to the Nexus AI server right now. It might be waking up from sleep.' 
+                        });
+                    } finally {
+                        this.isAiTyping = false;
+                        this.scrollToBottom();
+                    }
+                },
+                
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const container = document.getElementById('chat-messages-container');
+                        if (container) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    });
+                },
+                
+                renderMarkdown(text) {
+                    if(!text) return '';
+                    // Basic configuration for marked to prevent excessive styling overrides
+                    return marked.parse(text, { breaks: true });
+                },
+
                 drawCharts() {
                     if (this.academicRecords.length === 0) return;
 
@@ -665,7 +854,7 @@
         });
     </script>
 
-    <div x-data="app" class="h-screen w-full flex flex-col relative">
+    <div x-data="app" class="h-screen w-full flex flex-col relative overflow-hidden">
         
         <!-- App Loader -->
         <div x-show="isInitializing" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-appBase">
@@ -675,14 +864,14 @@
 
         <!-- Toast -->
         <div x-cloak x-show="notification.show" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-             class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg shadow-xl border flex items-center gap-3 min-w-[250px]"
+             class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-3 rounded-lg shadow-xl border flex items-center gap-3 min-w-[250px]"
              :class="notification.type === 'error' ? 'bg-dangerBg border-danger/30 text-red-200' : 'bg-successBg border-success/30 text-green-200'">
             <i class="ph text-lg" :class="notification.type === 'error' ? 'ph-warning-octagon text-danger' : 'ph-check-circle text-success'"></i>
             <span x-text="notification.msg" class="text-sm font-medium"></span>
         </div>
 
         <!-- Delete Confirmation Modal -->
-        <div x-cloak x-show="deleteModal.show" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div x-cloak x-show="deleteModal.show" class="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="cancelDelete"></div>
             <div class="relative bg-appSurface border border-appBorder rounded-2xl p-6 w-full max-w-sm shadow-xl transform transition-all"
                  x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
@@ -713,7 +902,7 @@
             
             <div class="auth-panel w-full max-w-sm glass-panel p-8 rounded-2xl relative z-10 shadow-glow">
                 <div class="mb-8 flex flex-col items-center text-center">
-                    <img src="images/logo.png" alt="Nexus Logo" class="h-12 w-auto mb-2 invert-logo">
+                    <img src="images/logo.png" alt="Nexus Logo" class="h-12 w-auto mb-2 invert-logo" onerror="this.src='https://placehold.co/150x50/18181b/ffffff?text=NEXUS'">
                     <p class="text-textMuted text-sm">Academic intelligence, simplified.</p>
                 </div>
 
@@ -758,7 +947,7 @@
                    :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'">
                 
                 <div class="h-16 flex items-center px-6 border-b border-appBorder/50">
-                    <img src="images/logo.png" alt="Nexus Logo" class="h-6 w-auto invert-logo">
+                    <img src="images/logo.png" alt="Nexus Logo" class="h-6 w-auto invert-logo" onerror="this.src='https://placehold.co/100x30/09090b/ffffff?text=NEXUS'">
                 </div>
 
                 <div class="px-4 py-6 flex-1 overflow-y-auto space-y-1">
@@ -801,7 +990,7 @@
                 
                 <!-- Mobile Nav Toggle -->
                 <div class="md:hidden h-14 border-b border-appBorder flex items-center justify-between px-4 sticky top-0 z-30 bg-appSurface/80 backdrop-blur">
-                    <img src="images/logo.png" alt="Nexus Logo" class="h-5 w-auto invert-logo">
+                    <img src="images/logo.png" alt="Nexus Logo" class="h-5 w-auto invert-logo" onerror="this.src='https://placehold.co/100x30/18181b/ffffff?text=NEXUS'">
                     <button @click="sidebarOpen = !sidebarOpen" class="text-white p-1">
                         <i class="ph text-xl" :class="sidebarOpen ? 'ph-x' : 'ph-list'"></i>
                     </button>
@@ -992,17 +1181,6 @@
                                                 </select>
                                             </div>
                                         </div>
-                                        <div>
-                                            <label class="block text-[10px] uppercase tracking-wider font-semibold text-accent mb-1">Target</label>
-                                            <div class="flex gap-2">
-                                                <select x-model="compareSettings.targetYear" class="w-full rounded px-2 py-1.5 text-xs border-accent/30 text-white bg-appBase">
-                                                    <template x-for="y in availableYears"><option :value="y" x-text="y"></option></template>
-                                                </select>
-                                                <select x-model="compareSettings.targetExam" class="w-full rounded px-2 py-1.5 text-xs border-accent/30 text-white bg-appBase">
-                                                    <option value="Half-Yearly">Half-Yearly</option><option value="Annual">Annual</option>
-                                                </select>
-                                            </div>
-                                        </div>
                                     </div>
                                     <button @click="drawCharts()" class="bg-appElevated border border-appBorder hover:bg-appBorderHover text-white px-5 py-2 rounded-lg text-sm transition-colors w-full md:w-auto h-full mt-auto">
                                         Analyze
@@ -1082,6 +1260,23 @@
                             <h2 class="text-2xl font-semibold text-white tracking-tight">Records</h2>
                             <p class="text-textMuted text-sm mt-1">Complete academic history.</p>
                         </div>
+                        
+                        <div x-show="recentAnalysis" x-transition class="mb-6 bg-accent/10 border border-accent/20 rounded-xl p-5 relative overflow-hidden">
+                             <div class="absolute top-0 right-0 p-4 opacity-10">
+                                 <i class="ph-fill ph-sparkle text-6xl text-accent"></i>
+                             </div>
+                             <div class="relative z-10">
+                                 <div class="flex items-center gap-2 mb-2">
+                                     <i class="ph-fill ph-sparkle text-accent text-lg"></i>
+                                     <h3 class="text-sm font-semibold text-accent">Nexus AI Insights</h3>
+                                 </div>
+                                 <div x-show="recentAnalysis?.loading" class="flex items-center gap-2 text-sm text-textMuted py-2">
+                                     <i class="ph ph-spinner animate-spin"></i> Analyzing your latest performance...
+                                 </div>
+                                 <div x-show="!recentAnalysis?.loading" class="text-sm text-white leading-relaxed prose prose-invert prose-sm max-w-none" x-html="renderMarkdown(recentAnalysis?.content)">
+                                 </div>
+                             </div>
+                        </div>
 
                         <div class="space-y-4">
                             <template x-for="(record, idx) in timelineData" :key="record.id">
@@ -1153,25 +1348,6 @@
                                            class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
                                 </div>
                                 
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-xs font-medium text-textMuted mb-1.5">Class</label>
-                                        <input type="text" x-model="profile.class" required placeholder="e.g. 10"
-                                               class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-medium text-textMuted mb-1.5">Section</label>
-                                        <input type="text" x-model="profile.section" placeholder="e.g. A"
-                                               class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
-                                    </div>
-                                </div>
-                                
-                                <div>
-                                    <label class="block text-xs font-medium text-textMuted mb-1.5">Roll Number</label>
-                                    <input type="text" x-model="profile.roll" placeholder="Identifier"
-                                           class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
-                                </div>
-
                                 <div class="pt-4 mt-2 flex justify-end">
                                     <button type="submit" :disabled="isProcessing"
                                             class="bg-accent text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-accentHover transition-colors flex items-center gap-2 shadow-accent">
@@ -1184,6 +1360,76 @@
                     </div>
 
                 </main>
+                
+                <!-- Floating AI Button -->
+                <button @click="toggleChat" 
+                        class="fixed bottom-6 right-6 z-40 w-14 h-14 bg-accent text-white rounded-full shadow-accent flex items-center justify-center hover:bg-accentHover transition-transform hover:scale-105 active:scale-95"
+                        :class="isChatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'">
+                    <i class="ph-fill ph-sparkle text-2xl"></i>
+                </button>
+                
+                <!-- Chat Drawer Overlay (Mobile) -->
+                <div x-show="isChatOpen" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 md:hidden" @click="toggleChat" x-transition.opacity></div>
+
+                <!-- Chat Drawer -->
+                <div class="fixed top-0 right-0 h-full w-full md:w-[400px] bg-appBase border-l border-appBorder shadow-drawer z-50 flex flex-col transform transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                     :class="isChatOpen ? 'translate-x-0' : 'translate-x-full'">
+                    
+                    <!-- Chat Header -->
+                    <div class="h-16 px-4 flex items-center justify-between border-b border-appBorder bg-appSurface">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center">
+                                <i class="ph-fill ph-sparkle text-accent"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-white">Nexus AI</h3>
+                                <p class="text-[10px] text-textMuted flex items-center gap-1">
+                                    <span class="w-1.5 h-1.5 rounded-full" :class="gradioClient ? 'bg-success' : 'bg-danger'"></span>
+                                    <span x-text="gradioClient ? 'Online' : 'Connecting...'"></span>
+                                </p>
+                            </div>
+                        </div>
+                        <button @click="toggleChat" class="text-textMuted hover:text-white p-2 rounded-lg hover:bg-appElevated transition-colors">
+                            <i class="ph ph-x text-lg"></i>
+                        </button>
+                    </div>
+
+                    <!-- Chat Messages Area -->
+                    <div id="chat-messages-container" class="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
+                        <template x-for="(msg, idx) in chatMessages" :key="idx">
+                            <div class="flex flex-col max-w-[85%]" :class="msg.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'">
+                                <div class="px-4 py-2.5 rounded-2xl text-sm leading-relaxed prose prose-sm" 
+                                     :class="msg.role === 'user' ? 'msg-user' : 'msg-assistant prose-invert'"
+                                     x-html="renderMarkdown(msg.content)">
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <!-- Typing Indicator -->
+                        <div x-show="isAiTyping" class="mr-auto items-start max-w-[85%]">
+                             <div class="px-4 py-3 rounded-2xl msg-assistant flex items-center gap-1 h-10">
+                                <svg height="8" width="8" class="typing-dot"><circle cx="4" cy="4" r="4" /></svg>
+                                <svg height="8" width="8" class="typing-dot"><circle cx="4" cy="4" r="4" /></svg>
+                                <svg height="8" width="8" class="typing-dot"><circle cx="4" cy="4" r="4" /></svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chat Input Area -->
+                    <div class="p-4 bg-appSurface border-t border-appBorder">
+                        <form @submit.prevent="sendChatMessage" class="relative">
+                            <input id="chat-input" type="text" x-model="chatInput" placeholder="Ask Nexus something..." 
+                                   class="w-full bg-appBase border border-appBorder rounded-full pl-4 pr-12 py-3 text-sm text-white placeholder:text-textMuted focus:border-accent transition-colors disabled:opacity-50"
+                                   :disabled="isAiTyping || !gradioClient">
+                            <button type="submit" 
+                                    class="absolute right-1.5 top-1.5 bottom-1.5 w-9 rounded-full bg-accent text-white flex items-center justify-center hover:bg-accentHover transition-colors disabled:opacity-50 disabled:bg-appElevated disabled:text-textMuted"
+                                    :disabled="!chatInput.trim() || isAiTyping || !gradioClient">
+                                <i class="ph-fill ph-paper-plane-right"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
