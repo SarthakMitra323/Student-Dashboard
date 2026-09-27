@@ -17,8 +17,8 @@
     <!-- GSAP for Micro-animations -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind CSS with Typography Plugin for Markdown formatting -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -142,11 +142,26 @@
             background-color: theme('colors.appElevated');
             border: 1px solid theme('colors.appBorder');
             border-bottom-left-radius: 0;
+            color: theme('colors.textMain');
+        }
+        .msg-assistant p {
+            color: theme('colors.textMain');
+            margin-bottom: 0.5rem;
+        }
+        .msg-assistant p:last-child {
+            margin-bottom: 0;
         }
         .msg-user {
             background-color: theme('colors.accent');
             color: white;
             border-bottom-right-radius: 0;
+        }
+        .msg-user p {
+            color: white;
+            margin-bottom: 0.5rem;
+        }
+        .msg-user p:last-child {
+            margin-bottom: 0;
         }
         
         /* Typing indicator dots */
