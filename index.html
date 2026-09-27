@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus | Academic Dashboard</title>
+    
+    <!-- Fonts: Outfit for Display, Plus Jakarta Sans for UI, JetBrains Mono for Data -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- GSAP for Micro-animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        display: ['Outfit', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        appBase: '#09090b',
+                        appSurface: '#18181b',
+                        appElevated: '#27272a',
+                        appBorder: '#3f3f46',
+                        appBorderHover: '#52525b',
+                        textMain: '#f4f4f5',
+                        textMuted: '#a1a1aa',
+                        accent: '#818cf8',
+                        accentHover: '#6366f1',
+                        success: '#34d399',
+                        successBg: '#022c22',
+                        danger: '#fb7185',
+                        dangerBg: '#4c0519',
+                    },
+                    boxShadow: {
+                        'glow': '0 0 40px rgba(129, 140, 248, 0.1)',
+                        'accent': '0 4px 20px rgba(129, 140, 248, 0.25)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS -->
+    <style>
+        body {
+            background-color: theme('colors.appBase');
+            color: theme('colors.textMain');
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        h1, h2, h3, .tracking-tight, .text-3xl {
+            font-family: theme('fontFamily.display');
+            letter-spacing: -0.02em;
+        }
+        
+        /* Refined Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: theme('colors.appBorder'); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: theme('colors.appBorderHover'); }
+
+        /* Subtle noise texture for premium feel */
+        .noise-bg {
+            position: relative;
+        }
+        .noise-bg::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.025;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .glass-panel {
+            background: rgba(24, 24, 27, 0.65);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid theme('colors.appBorder');
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Input styling */
+        input, select {
+            background-color: theme('colors.appBase');
+            border: 1px solid theme('colors.appBorder');
+            color: theme('colors.textMain');
+            transition: all 0.2s ease;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: theme('colors.accent');
+            box-shadow: 0 0 0 1px theme('colors.accent');
+        }
+        
+        /* Hide number input arrows */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; margin: 0; 
+        }
+
+        /* Dropdown options styling for native OS menus */
+        option {
+            background-color: theme('colors.appElevated');
+            color: theme('colors.textMain');
+        }
+
+        [x-cloak] { display: none !important; }
+
+        /* Chart tooltip styling overrides */
+        #chartjs-tooltip {
+            background: theme('colors.appElevated') !important;
+            border: 1px solid theme('colors.appBorder') !important;
+            border-radius: 8px !important;
+            color: white !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5) !important;
+        }
+    </style>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA5jfHr8CohGB-zaACITBFlVujPyUdaAq4",
+            authDomain: "student-dashboard-pro.firebaseapp.com",
+            projectId: "student-dashboard-pro",
+            storageBucket: "student-dashboard-pro.firebasestorage.app",
+            messagingSenderId: "516488793550",
+            appId: "1:516488793550:web:2a445aa6f8221daab6af9f",
+            measurementId: "G-W2H6RY4QCS"
+        };
+
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        window.db = db;
+        window.auth = auth;
+        window.appId = firebaseConfig.appId;
+        
+        window.fb = {
+            doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, onSnapshot,
+            GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged
+        };
+
+        window.initAuthFlow = async () => {
+            const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            if (initialToken) {
+                try {
+                    await signInWithCustomToken(auth, initialToken);
+                } catch (e) {
+                    await signInAnonymously(auth);
+                }
+            }
+        };
+        window.initAuthFlow();
+    </script>
+</head>
+<body class="overflow-hidden noise-bg">
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('app', () => ({
+                user: null,
+                userId: null,
+                isInitializing: true,
+                currentView: 'dashboard',
+                sidebarOpen: false,
+                isProcessing: false,
+                notification: { show: false, msg: '', type: 'success' },
+                
+                profile: { name: '', class: '', section: '', roll: '' },
+                academicRecords: [], 
+                
+                deleteModal: { show: false, id: null },
+
+                authData: { email: '', password: '', mode: 'login' },
+                entryForm: {
+                    year: '2026-27',
+                    exam: 'Half-Yearly',
+                    subjects: [
+                        { name: 'Mathematics', marks: '' },
+                        { name: 'Science', marks: '' },
+                        { name: 'English', marks: '' }
+                    ],
+                    errors: {}
+                },
+                compareSettings: {
+                    baseYear: '', baseExam: 'Annual',
+                    targetYear: '', targetExam: 'Annual'
+                },
+
+                charts: { trend: null, comparison: null },
+
+                init() {
+                    const checkFb = setInterval(() => {
+                        if (window.auth && window.fb?.onAuthStateChanged) {
+                            clearInterval(checkFb);
+                            window.fb.onAuthStateChanged(window.auth, async (u) => {
+                                this.isInitializing = true;
+                                if (u) {
+                                    this.user = u;
+                                    this.userId = u.uid;
+                                    await this.loadUserData();
+                                    this.setupInitialComparison();
+                                    this.currentView = this.profile.name ? 'dashboard' : 'settings';
+                                    this.$nextTick(() => this.animateEntrance());
+                                } else {
+                                    this.resetState();
+                                    this.$nextTick(() => this.animateAuthEntrance());
+                                }
+                                this.isInitializing = false;
+                            });
+                        }
+                    }, 50);
+
+                    this.$watch('currentView', (val) => {
+                        this.sidebarOpen = false;
+                        this.$nextTick(() => {
+                            this.animateViewTransition();
+                            if (val === 'dashboard' || val === 'compare') {
+                                setTimeout(() => this.drawCharts(), 150);
+                            }
+                        });
+                    });
+                },
+                
+                // --- GSAP Animations ---
+                animateEntrance() {
+                    gsap.fromTo('.nav-item', 
+                        { x: -20, opacity: 0 }, 
+                        { x: 0, opacity: 1, duration: 0.4, stagger: 0.05, ease: 'power2.out' }
+                    );
+                    this.animateViewTransition();
+                },
+                animateAuthEntrance() {
+                    gsap.fromTo('.auth-panel', 
+                        { y: 30, opacity: 0, scale: 0.98 }, 
+                        { y: 0, opacity: 1, scale: 1, duration: 0.6, ease: 'power3.out' }
+                    );
+                },
+                animateViewTransition() {
+                    const elements = document.querySelectorAll('.stagger-animate');
+                    if(elements.length) {
+                        gsap.fromTo(elements,
+                            { y: 15, opacity: 0 },
+                            { y: 0, opacity: 1, duration: 0.4, stagger: 0.08, ease: 'power2.out', clearProps: 'all' }
+                        );
+                    }
+                },
+                animateNumbers(el, targetValue, format = 'number') {
+                     gsap.to(el, {
+                        innerHTML: targetValue,
+                        duration: 1.5,
+                        ease: 'power2.out',
+                        snap: { innerHTML: format === 'percentage' ? 0.01 : 1 },
+                        onUpdate: function() {
+                            if (format === 'percentage') {
+                                el.innerHTML = Number(this.targets()[0].innerHTML).toFixed(2) + '%';
+                            }
+                        }
+                    });
+                },
+
+                // --- Auth ---
+                async processEmailAuth() {
+                    this.isProcessing = true;
+                    try {
+                        if (this.authData.mode === 'login') {
+                            await window.fb.signInWithEmailAndPassword(window.auth, this.authData.email, this.authData.password);
+                        } else {
+                            await window.fb.createUserWithEmailAndPassword(window.auth, this.authData.email, this.authData.password);
+                        }
+                        this.authData.password = '';
+                    } catch (e) {
+                        this.notify(this.getCleanErrorMessage(e.message), 'error');
+                    } finally {
+                        this.isProcessing = false;
+                    }
+                },
+                async processGoogleAuth() {
+                    try {
+                        const provider = new window.fb.GoogleAuthProvider();
+                        await window.fb.signInWithPopup(window.auth, provider);
+                    } catch (e) {
+                        this.notify('Google sign-in failed.', 'error');
+                    }
+                },
+                async logout() {
+                    await window.fb.signOut(window.auth);
+                },
+                getCleanErrorMessage(msg) {
+                    if(msg.includes('invalid-credential')) return 'Invalid email or password.';
+                    if(msg.includes('email-already-in-use')) return 'This email is already registered.';
+                    if(msg.includes('weak-password')) return 'Password should be at least 6 characters.';
+                    return 'Authentication error occurred.';
+                },
+
+                // --- UI ---
+                notify(msg, type = 'success') {
+                    this.notification = { show: true, msg, type };
+                    setTimeout(() => { this.notification.show = false; }, 3500);
+                },
+                navTo(view) {
+                    if(this.currentView !== view) this.currentView = view;
+                },
+                resetState() {
+                    this.user = null; this.userId = null;
+                    this.academicRecords = [];
+                    this.profile = { name: '', class: '', section: '', roll: '' };
+                },
+
+                // --- Data ---
+                get pRef() { return window.fb.doc(window.db, `artifacts/${window.appId}/users/${this.userId}/profile/main`); },
+                get rRef() { return window.fb.collection(window.db, `artifacts/${window.appId}/users/${this.userId}/results`); },
+
+                async loadUserData() {
+                    try {
+                        const [pSnap, rSnap] = await Promise.all([
+                            window.fb.getDoc(this.pRef),
+                            window.fb.getDocs(window.fb.query(this.rRef))
+                        ]);
+                        
+                        if (pSnap.exists()) this.profile = pSnap.data();
+                        
+                        this.academicRecords = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    } catch (e) {
+                        console.error("Data load error", e);
+                    }
+                },
+
+                async updateProfile() {
+                    if (!this.userId) return;
+                    this.isProcessing = true;
+                    try {
+                        await window.fb.setDoc(this.pRef, { ...this.profile, updatedAt: new Date().toISOString() });
+                        this.notify('Profile saved securely.');
+                        if (this.currentView === 'settings' && this.academicRecords.length > 0) {
+                            this.navTo('dashboard');
+                        }
+                    } catch (e) {
+                        this.notify('Failed to save profile.', 'error');
+                    } finally {
+                        this.isProcessing = false;
+                    }
+                },
+
+                validateEntry() {
+                    this.entryForm.errors = {};
+                    let isValid = true;
+                    
+                    const filledSubjects = this.entryForm.subjects.filter(s => s.name.trim() !== '');
+                    if(filledSubjects.length === 0) {
+                        this.notify('Please add at least one subject.', 'error');
+                        return false;
+                    }
+
+                    filledSubjects.forEach((s, idx) => {
+                        if (s.marks === '' || s.marks === null) {
+                            this.entryForm.errors[idx] = 'Marks required';
+                            isValid = false;
+                        } else {
+                            const val = Number(s.marks);
+                            if (val < 0 || val > 80) {
+                                this.entryForm.errors[idx] = 'Must be 0-80';
+                                isValid = false;
+                            }
+                        }
+                    });
+                    return isValid;
+                },
+
+                async submitResult() {
+                    if (!this.userId || !this.validateEntry()) return;
+                    
+                    this.isProcessing = true;
+                    try {
+                        const existing = this.academicRecords.find(r => r.year === this.entryForm.year && r.exam === this.entryForm.exam);
+                        const id = existing ? existing.id : crypto.randomUUID();
+                        const docRef = window.fb.doc(window.db, `artifacts/${window.appId}/users/${this.userId}/results/${id}`);
+                        
+                        const validSubjects = this.entryForm.subjects
+                            .filter(s => s.name.trim() !== '')
+                            .map(s => ({ name: s.name.trim(), obtained: Number(s.marks), max: 80 }));
+                            
+                        const totalObtained = validSubjects.reduce((sum, s) => sum + s.obtained, 0);
+                        const totalMax = validSubjects.length * 80;
+                        const percentage = Number(((totalObtained / totalMax) * 100).toFixed(2));
+
+                        const payload = {
+                            year: this.entryForm.year,
+                            exam: this.entryForm.exam,
+                            subjects: validSubjects,
+                            totalObtained,
+                            totalMax,
+                            percentage,
+                            updatedAt: new Date().toISOString()
+                        };
+
+                        await window.fb.setDoc(docRef, payload);
+                        
+                        // Update local state smoothly
+                        if(existing) {
+                            const idx = this.academicRecords.findIndex(r => r.id === id);
+                            this.academicRecords[idx] = { id, ...payload };
+                        } else {
+                            this.academicRecords.push({ id, ...payload });
+                        }
+                        
+                        this.notify('Record updated successfully.');
+                        this.setupInitialComparison(); // Re-calc default comparison
+                        
+                        // Reset form visually
+                        this.entryForm.subjects.forEach(s => s.marks = '');
+                        this.navTo('history');
+                        
+                    } catch (e) {
+                        this.notify('Error saving record.', 'error');
+                    } finally {
+                        this.isProcessing = false;
+                    }
+                },
+                
+                removeRecord(id) {
+                    this.deleteModal = { show: true, id };
+                },
+
+                async executeDelete() {
+                    if (!this.deleteModal.id) return;
+                    const id = this.deleteModal.id;
+                    this.isProcessing = true;
+                    try {
+                        await window.fb.deleteDoc(window.fb.doc(window.db, `artifacts/${window.appId}/users/${this.userId}/results/${id}`));
+                        this.academicRecords = this.academicRecords.filter(r => r.id !== id);
+                        this.notify('Record removed.');
+                        this.setupInitialComparison();
+                        this.deleteModal = { show: false, id: null };
+                    } catch(e) {
+                        this.notify('Could not remove record.', 'error');
+                    } finally {
+                        this.isProcessing = false;
+                    }
+                },
+
+                cancelDelete() {
+                    this.deleteModal = { show: false, id: null };
+                },
+
+                addFormSubject() { this.entryForm.subjects.push({ name: '', marks: '' }); },
+                removeFormSubject(idx) { this.entryForm.subjects.splice(idx, 1); },
+
+                // --- Getters & Logic ---
+                get availableYears() {
+                    const yrs = [...new Set(this.academicRecords.map(r => r.year))];
+                    return yrs.sort((a, b) => b.localeCompare(a));
+                },
+                
+                get timelineData() {
+                    return [...this.academicRecords].sort((a, b) => {
+                        if (a.year !== b.year) return b.year.localeCompare(a.year);
+                        return a.exam === 'Annual' ? -1 : 1;
+                    });
+                },
+
+                get latestRecord() { return this.timelineData[0] || null; },
+                
+                get priorRecord() {
+                    if (this.timelineData.length < 2) return null;
+                    const latest = this.timelineData[0];
+                    return this.timelineData.find(r => r.id !== latest.id && r.exam === latest.exam) || this.timelineData[1];
+                },
+
+                get overviewMetrics() {
+                    const metrics = { current: 0, prev: null, diff: null, subImproved: 0, subTotal: 0 };
+                    const latest = this.latestRecord;
+                    const prior = this.priorRecord;
+
+                    if (latest) metrics.current = latest.percentage;
+                    if (prior) {
+                        metrics.prev = prior.percentage;
+                        metrics.diff = Number((metrics.current - metrics.prev).toFixed(2));
+                        
+                        let improved = 0;
+                        latest.subjects.forEach(cSub => {
+                            const pSub = prior.subjects.find(s => s.name.toLowerCase() === cSub.name.toLowerCase());
+                            if (pSub) {
+                                const cPct = cSub.obtained / cSub.max;
+                                const pPct = pSub.obtained / pSub.max;
+                                if (cPct > pPct) improved++;
+                            }
+                        });
+                        metrics.subImproved = improved;
+                        metrics.subTotal = latest.subjects.length;
+                    }
+                    return metrics;
+                },
+
+                setupInitialComparison() {
+                    if (this.availableYears.length >= 2) {
+                        this.compareSettings.baseYear = this.availableYears[1];
+                        this.compareSettings.targetYear = this.availableYears[0];
+                    } else if (this.availableYears.length === 1) {
+                        this.compareSettings.baseYear = this.availableYears[0];
+                        this.compareSettings.targetYear = this.availableYears[0];
+                        this.compareSettings.baseExam = 'Half-Yearly';
+                    }
+                },
+
+                get analysisData() {
+                    const base = this.academicRecords.find(r => r.year === this.compareSettings.baseYear && r.exam === this.compareSettings.baseExam);
+                    const target = this.academicRecords.find(r => r.year === this.compareSettings.targetYear && r.exam === this.compareSettings.targetExam);
+                    
+                    if (!base || !target) return null;
+
+                    const subjects = target.subjects.map(cSub => {
+                        const pSub = base.subjects.find(s => s.name.toLowerCase() === cSub.name.toLowerCase());
+                        const cPct = (cSub.obtained / cSub.max) * 100;
+                        let pPct = null, diff = null, state = 'new';
+                        
+                        if (pSub) {
+                            pPct = (pSub.obtained / pSub.max) * 100;
+                            diff = cPct - pPct;
+                            if (diff > 0) state = 'up';
+                            else if (diff < 0) state = 'down';
+                            else state = 'flat';
+                        }
+                        return { name: cSub.name, pPct, cPct, diff, state };
+                    });
+
+                    return { base, target, overallDiff: target.percentage - base.percentage, subjects };
+                },
+
+                // --- Charts ---
+                drawCharts() {
+                    if (this.academicRecords.length === 0) return;
+
+                    Chart.defaults.color = '#a1a1aa';
+                    Chart.defaults.font.family = "'JetBrains Mono', monospace";
+                    Chart.defaults.font.size = 11;
+                    const gridColor = '#27272a';
+
+                    // Trend Chart
+                    const elTrend = document.getElementById('chart-trend');
+                    if (elTrend && this.currentView === 'dashboard') {
+                        if (this.charts.trend) this.charts.trend.destroy();
+                        
+                        const data = [...this.timelineData].reverse();
+                        
+                        const ctx = elTrend.getContext('2d');
+                        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                        gradient.addColorStop(0, 'rgba(129, 140, 248, 0.25)'); 
+                        gradient.addColorStop(1, 'rgba(129, 140, 248, 0.0)');
+
+                        this.charts.trend = new Chart(elTrend, {
+                            type: 'line',
+                            data: {
+                                labels: data.map(r => `${r.year.substring(2)} ${r.exam.charAt(0)}`),
+                                datasets: [{
+                                    data: data.map(r => r.percentage),
+                                    borderColor: '#818cf8',
+                                    backgroundColor: gradient,
+                                    borderWidth: 2,
+                                    pointBackgroundColor: '#18181b',
+                                    pointBorderColor: '#818cf8',
+                                    pointRadius: 4,
+                                    pointHoverRadius: 6,
+                                    fill: true,
+                                    tension: 0.4
+                                }]
+                            },
+                            options: {
+                                responsive: true, maintainAspectRatio: false,
+                                plugins: { 
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            title: (ctx) => data[ctx[0].dataIndex].year + ' ' + data[ctx[0].dataIndex].exam,
+                                            label: (ctx) => `Score: ${ctx.raw}%`
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    y: { min: 0, max: 100, grid: { color: gridColor, drawBorder: false } },
+                                    x: { grid: { display: false, drawBorder: false } }
+                                },
+                                animation: { duration: 1000, easing: 'easeOutQuart' }
+                            }
+                        });
+                    }
+                    
+                    // Comparison Chart
+                    const elComp = document.getElementById('chart-comp');
+                    if (elComp && this.currentView === 'compare' && this.analysisData) {
+                         if (this.charts.comparison) this.charts.comparison.destroy();
+                         
+                         const data = this.analysisData;
+                         
+                         this.charts.comparison = new Chart(elComp, {
+                             type: 'bar',
+                             data: {
+                                 labels: data.subjects.map(s => s.name),
+                                 datasets: [
+                                     {
+                                         label: `${data.base.year} ${data.base.exam}`,
+                                         data: data.subjects.map(s => s.pPct || 0),
+                                         backgroundColor: '#3f3f46',
+                                         borderRadius: 4,
+                                         barPercentage: 0.6,
+                                         categoryPercentage: 0.8
+                                     },
+                                     {
+                                         label: `${data.target.year} ${data.target.exam}`,
+                                         data: data.subjects.map(s => s.cPct),
+                                         backgroundColor: '#818cf8',
+                                         borderRadius: 4,
+                                         barPercentage: 0.6,
+                                         categoryPercentage: 0.8
+                                     }
+                                 ]
+                             },
+                             options: {
+                                 responsive: true, maintainAspectRatio: false,
+                                 plugins: { 
+                                     legend: { position: 'top', align: 'end', labels: { boxWidth: 12, usePointStyle: true, pointStyle: 'rectRounded' } } 
+                                 },
+                                 scales: {
+                                    y: { min: 0, max: 100, grid: { color: gridColor, drawBorder: false } },
+                                    x: { grid: { display: false, drawBorder: false } }
+                                },
+                                animation: { duration: 800, easing: 'easeOutQuart' }
+                             }
+                         });
+                    }
+                }
+            }));
+        });
+    </script>
+
+    <div x-data="app" class="h-screen w-full flex flex-col relative">
+        
+        <!-- App Loader -->
+        <div x-show="isInitializing" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-appBase">
+            <div class="w-8 h-8 border-2 border-appBorder border-t-accent rounded-full animate-spin mb-4"></div>
+            <p class="text-xs text-textMuted font-mono">INITIALIZING_NEXUS</p>
+        </div>
+
+        <!-- Toast -->
+        <div x-cloak x-show="notification.show" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg shadow-xl border flex items-center gap-3 min-w-[250px]"
+             :class="notification.type === 'error' ? 'bg-dangerBg border-danger/30 text-red-200' : 'bg-successBg border-success/30 text-green-200'">
+            <i class="ph text-lg" :class="notification.type === 'error' ? 'ph-warning-octagon text-danger' : 'ph-check-circle text-success'"></i>
+            <span x-text="notification.msg" class="text-sm font-medium"></span>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div x-cloak x-show="deleteModal.show" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="cancelDelete"></div>
+            <div class="relative bg-appSurface border border-appBorder rounded-2xl p-6 w-full max-w-sm shadow-xl transform transition-all"
+                 x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                 x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95">
+                <div class="flex items-center gap-3 mb-4 text-danger">
+                    <div class="w-10 h-10 rounded-full bg-dangerBg flex items-center justify-center">
+                        <i class="ph ph-warning text-xl"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white tracking-tight">Delete Record</h3>
+                </div>
+                <p class="text-sm text-textMuted mb-6">Are you sure you want to permanently delete this academic record? This action cannot be undone.</p>
+                <div class="flex items-center gap-3 justify-end">
+                    <button @click="cancelDelete" :disabled="isProcessing" class="px-4 py-2 text-sm font-medium text-textMuted hover:text-white transition-colors">
+                        Cancel
+                    </button>
+                    <button @click="executeDelete" :disabled="isProcessing" class="px-4 py-2 bg-danger text-white rounded-lg text-sm font-medium hover:bg-rose-500 transition-colors flex items-center gap-2">
+                        <i x-show="isProcessing" class="ph ph-spinner animate-spin"></i>
+                        Yes, delete
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div x-cloak x-show="!user && !isInitializing" class="flex-1 flex items-center justify-center p-6 relative overflow-hidden">
+            <!-- Decorative background elements -->
+            <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-white/5 rounded-full blur-[100px] pointer-events-none"></div>
+            <div class="absolute bottom-1/4 right-1/4 w-96 h-96 bg-white/5 rounded-full blur-[100px] pointer-events-none"></div>
+            
+            <div class="auth-panel w-full max-w-sm glass-panel p-8 rounded-2xl relative z-10 shadow-glow">
+                <div class="mb-8">
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-6 h-6 bg-accent rounded flex items-center justify-center shadow-accent">
+                            <i class="ph-bold ph-chart-polar text-white text-xs"></i>
+                        </div>
+                        <span class="font-bold tracking-tight text-lg text-white">NEXUS</span>
+                    </div>
+                    <p class="text-textMuted text-sm">Academic intelligence, simplified.</p>
+                </div>
+
+                <form @submit.prevent="processEmailAuth" class="space-y-4">
+                    <div>
+                        <input type="email" x-model="authData.email" required placeholder="Email address"
+                               class="w-full rounded-xl px-4 py-3 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
+                    </div>
+                    <div>
+                        <input type="password" x-model="authData.password" required minlength="6" placeholder="Password"
+                               class="w-full rounded-xl px-4 py-3 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
+                    </div>
+                    <button type="submit" :disabled="isProcessing" 
+                            class="w-full bg-accent text-white hover:bg-accentHover font-medium py-3 rounded-xl text-sm transition-colors flex justify-center items-center gap-2 shadow-accent">
+                        <i x-show="isProcessing" class="ph ph-spinner animate-spin"></i>
+                        <span x-text="authData.mode === 'login' ? 'Continue' : 'Create Account'"></span>
+                    </button>
+                </form>
+
+                <div class="mt-6 flex items-center justify-between">
+                    <span class="h-px bg-appBorder flex-1"></span>
+                    <span class="text-xs text-textMuted px-3">OR</span>
+                    <span class="h-px bg-appBorder flex-1"></span>
+                </div>
+
+                <button @click="processGoogleAuth" type="button" class="mt-6 w-full bg-appElevated border border-appBorder hover:border-appBorderHover text-white py-3 rounded-lg text-sm transition-colors flex justify-center items-center gap-2">
+                    <i class="ph-fill ph-google-logo text-lg"></i> Continue with Google
+                </button>
+
+                <div class="mt-8 text-center">
+                    <button @click="authData.mode = authData.mode === 'login' ? 'signup' : 'login'" class="text-xs text-textMuted hover:text-white transition-colors">
+                        <span x-text="authData.mode === 'login' ? 'No account? Sign up' : 'Have an account? Log in'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div x-cloak x-show="user && !isInitializing" class="flex-1 flex overflow-hidden">
+            
+            <!-- Sidebar -->
+            <aside class="fixed inset-y-0 left-0 z-40 w-64 bg-appBase border-r border-appBorder transform transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:relative md:translate-x-0 flex flex-col"
+                   :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'">
+                
+                <div class="h-16 flex items-center px-6 border-b border-appBorder/50">
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 h-6 bg-accent rounded flex items-center justify-center shadow-accent">
+                            <i class="ph-bold ph-chart-polar text-white text-xs"></i>
+                        </div>
+                        <span class="font-bold tracking-tight text-white">NEXUS</span>
+                    </div>
+                </div>
+
+                <div class="px-4 py-6 flex-1 overflow-y-auto space-y-1">
+                    <p class="px-2 text-xs font-semibold text-appBorderHover uppercase tracking-wider mb-2">Menu</p>
+                    
+                    <template x-for="item in [
+                        { id: 'dashboard', icon: 'ph-squares-four', label: 'Overview' },
+                        { id: 'entry', icon: 'ph-plus', label: 'Add Result' },
+                        { id: 'compare', icon: 'ph-arrows-left-right', label: 'Compare' },
+                        { id: 'history', icon: 'ph-clock-counter-clockwise', label: 'History' },
+                    ]">
+                        <button @click="navTo(item.id)" 
+                                class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200"
+                                :class="currentView === item.id ? 'bg-appElevated text-white' : 'text-textMuted hover:text-white hover:bg-appElevated/50'">
+                            <i class="ph text-lg" :class="item.icon"></i>
+                            <span x-text="item.label"></span>
+                        </button>
+                    </template>
+                </div>
+
+                <div class="p-4 border-t border-appBorder/50">
+                     <button @click="navTo('settings')" class="w-full flex items-center gap-3 px-3 py-2 mb-1 rounded-md text-sm font-medium transition-colors"
+                            :class="currentView === 'settings' ? 'bg-appElevated text-white' : 'text-textMuted hover:text-white'">
+                        <i class="ph ph-gear text-lg"></i> Settings
+                    </button>
+                    <div class="flex items-center justify-between px-3 py-2 mt-2 bg-appElevated/30 rounded-md border border-appBorder/50">
+                        <div class="min-w-0">
+                            <p class="text-xs text-white truncate font-medium" x-text="profile.name || user?.email"></p>
+                            <p class="text-[10px] text-textMuted truncate mt-0.5 font-mono" x-text="profile.class ? `Class ${profile.class}-${profile.section}` : 'Student'"></p>
+                        </div>
+                        <button @click="logout" class="text-textMuted hover:text-white p-1" title="Sign out">
+                            <i class="ph ph-sign-out"></i>
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content Area -->
+            <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-appSurface relative">
+                
+                <!-- Mobile Nav Toggle -->
+                <div class="md:hidden h-14 border-b border-appBorder flex items-center justify-between px-4 sticky top-0 z-30 bg-appSurface/80 backdrop-blur">
+                    <span class="font-bold text-white text-sm">NEXUS</span>
+                    <button @click="sidebarOpen = !sidebarOpen" class="text-white p-1">
+                        <i class="ph text-xl" :class="sidebarOpen ? 'ph-x' : 'ph-list'"></i>
+                    </button>
+                </div>
+
+                <main class="flex-1 overflow-y-auto p-4 md:p-10 w-full max-w-5xl mx-auto">
+                    
+                    <div x-show="currentView === 'dashboard'">
+                        <div class="stagger-animate mb-8">
+                            <h1 class="text-2xl font-semibold text-white tracking-tight">Overview</h1>
+                            <p class="text-textMuted text-sm mt-1">Your academic performance at a glance.</p>
+                        </div>
+
+                        <!-- Empty State -->
+                        <template x-if="academicRecords.length === 0">
+                            <div class="stagger-animate border border-dashed border-appBorder rounded-xl p-10 flex flex-col items-center justify-center text-center">
+                                <div class="w-12 h-12 rounded-full bg-appElevated flex items-center justify-center mb-4 border border-appBorder">
+                                    <i class="ph ph-chart-line-up text-xl text-textMuted"></i>
+                                </div>
+                                <h3 class="text-white font-medium text-lg">No data available</h3>
+                                <p class="text-textMuted text-sm mt-2 max-w-sm">Add your first examination result to unlock analytics, trends, and insights.</p>
+                                <button @click="navTo('entry')" class="mt-6 bg-accent text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-accentHover transition-colors shadow-accent">
+                                    Add Result
+                                </button>
+                            </div>
+                        </template>
+
+                        <!-- Data State -->
+                        <template x-if="academicRecords.length > 0">
+                            <div class="space-y-6">
+                                <!-- Metrics -->
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div class="stagger-animate bg-appBase border border-appBorder rounded-xl p-5 relative overflow-hidden group">
+                                        <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                        <p class="text-xs text-textMuted font-medium">Current Overall</p>
+                                        <div class="mt-3 flex items-baseline gap-1">
+                                            <span class="text-3xl font-semibold text-white tracking-tight" x-text="overviewMetrics.current"></span><span class="text-textMuted">%</span>
+                                        </div>
+                                        <p class="text-[10px] text-appBorderHover font-mono mt-2 uppercase tracking-wider" x-text="latestRecord.year + ' ' + latestRecord.exam"></p>
+                                    </div>
+                                    
+                                    <div class="stagger-animate bg-appBase border border-appBorder rounded-xl p-5">
+                                        <p class="text-xs text-textMuted font-medium">Previous</p>
+                                        <div class="mt-3 flex items-baseline gap-1">
+                                            <span class="text-3xl font-semibold text-white tracking-tight" x-text="overviewMetrics.prev !== null ? overviewMetrics.prev : '--'"></span>
+                                            <span class="text-textMuted" x-show="overviewMetrics.prev !== null">%</span>
+                                        </div>
+                                        <p class="text-[10px] text-appBorderHover font-mono mt-2 uppercase tracking-wider" x-text="priorRecord ? (priorRecord.year + ' ' + priorRecord.exam) : 'NO PRIOR DATA'"></p>
+                                    </div>
+
+                                    <div class="stagger-animate bg-appBase border border-appBorder rounded-xl p-5">
+                                        <p class="text-xs text-textMuted font-medium">Shift</p>
+                                        <div class="mt-3 flex items-center gap-2">
+                                            <span class="text-3xl font-semibold tracking-tight" 
+                                                  :class="overviewMetrics.diff > 0 ? 'text-success' : (overviewMetrics.diff < 0 ? 'text-danger' : 'text-white')"
+                                                  x-text="overviewMetrics.diff !== null ? Math.abs(overviewMetrics.diff) : '--'"></span>
+                                            <div x-show="overviewMetrics.diff !== null" class="flex flex-col">
+                                                <span class="text-xs text-textMuted font-mono">pts</span>
+                                                <i class="ph font-bold text-sm" :class="overviewMetrics.diff > 0 ? 'ph-arrow-up text-success' : (overviewMetrics.diff < 0 ? 'ph-arrow-down text-danger' : 'ph-minus text-textMuted')"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="stagger-animate bg-appBase border border-appBorder rounded-xl p-5">
+                                        <p class="text-xs text-textMuted font-medium">Subjects Improved</p>
+                                        <div class="mt-3 flex items-baseline gap-1">
+                                            <span class="text-3xl font-semibold text-white tracking-tight" x-text="overviewMetrics.prev !== null ? overviewMetrics.subImproved : '--'"></span>
+                                            <span class="text-textMuted font-mono text-sm" x-show="overviewMetrics.prev !== null" x-text="'/ ' + overviewMetrics.subTotal"></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Chart -->
+                                <div class="stagger-animate bg-appBase border border-appBorder rounded-xl p-5">
+                                    <div class="mb-4">
+                                        <h3 class="text-sm font-medium text-white">Performance Trajectory</h3>
+                                    </div>
+                                    <div class="h-64 w-full">
+                                        <canvas id="chart-trend"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="currentView === 'entry'">
+                        <div class="stagger-animate mb-8">
+                            <h2 class="text-2xl font-semibold text-white tracking-tight">Add Record</h2>
+                            <p class="text-textMuted text-sm mt-1">Enter marks for a specific examination term.</p>
+                        </div>
+
+                        <div class="stagger-animate bg-appBase border border-appBorder rounded-xl overflow-hidden max-w-2xl">
+                            <form @submit.prevent="submitResult">
+                                <div class="p-5 md:p-6 border-b border-appBorder/50 grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-medium text-textMuted mb-2 uppercase tracking-wider">Academic Year</label>
+                                        <select x-model="entryForm.year" class="w-full rounded-md px-3 py-2.5 text-sm appearance-none cursor-pointer bg-appBase border border-appBorder text-white focus:border-accent transition-all">
+                                            <option value="2026-27">2026-27</option>
+                                            <option value="2025-26">2025-26</option>
+                                            <option value="2024-25">2024-25</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-textMuted mb-2 uppercase tracking-wider">Term</label>
+                                        <select x-model="entryForm.exam" class="w-full rounded-md px-3 py-2.5 text-sm appearance-none cursor-pointer bg-appBase border border-appBorder text-white focus:border-accent transition-all">
+                                            <option value="Half-Yearly">Half-Yearly</option>
+                                            <option value="Annual">Annual</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="p-5 md:p-6">
+                                    <div class="flex justify-between items-end mb-4">
+                                        <label class="block text-xs font-medium text-textMuted uppercase tracking-wider">Subjects (Max 80)</label>
+                                        <button type="button" @click="addFormSubject" class="text-xs font-medium text-white hover:text-textMuted flex items-center gap-1 transition-colors">
+                                            <i class="ph ph-plus"></i> Add
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="space-y-3">
+                                        <template x-for="(sub, idx) in entryForm.subjects" :key="idx">
+                                            <div class="flex items-start gap-3 group">
+                                                <div class="flex-1">
+                                                    <input type="text" x-model="sub.name" placeholder="Subject Name" required
+                                                           class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
+                                                </div>
+                                                <div class="w-28 relative">
+                                                    <input type="number" x-model="sub.marks" placeholder="0" step="0.5"
+                                                           class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all font-mono text-right"
+                                                           :class="entryForm.errors[idx] ? 'border-danger text-danger' : ''">
+                                                    <span x-show="entryForm.errors[idx]" class="absolute -bottom-4 right-0 text-[9px] text-danger" x-text="entryForm.errors[idx]"></span>
+                                                </div>
+                                                <button type="button" @click="removeFormSubject(idx)" class="mt-2 text-textMuted hover:text-danger transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+                                                    <i class="ph ph-trash text-base"></i>
+                                                </button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div class="p-5 md:p-6 border-t border-appBorder/50 bg-appElevated/20 flex justify-end">
+                                    <button type="submit" :disabled="isProcessing"
+                                            class="bg-accent text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-accentHover transition-colors flex items-center gap-2 shadow-accent">
+                                        <i x-show="isProcessing" class="ph ph-spinner animate-spin"></i>
+                                        Save Record
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div x-show="currentView === 'compare'">
+                        <div class="stagger-animate mb-8">
+                            <h2 class="text-2xl font-semibold text-white tracking-tight">Analysis</h2>
+                            <p class="text-textMuted text-sm mt-1">Compare performance across terms.</p>
+                        </div>
+
+                        <template x-if="academicRecords.length < 2">
+                            <div class="stagger-animate border border-appBorder rounded-xl p-6 text-sm text-textMuted bg-appBase">
+                                Insufficient data for comparison. Add more records.
+                            </div>
+                        </template>
+
+                        <template x-if="academicRecords.length >= 2">
+                            <div class="space-y-6">
+                                <!-- Selectors -->
+                                <div class="stagger-animate bg-appBase border border-appBorder rounded-xl p-4 flex flex-col md:flex-row items-center gap-4">
+                                    <div class="flex-1 grid grid-cols-2 gap-4 w-full">
+                                        <div>
+                                            <label class="block text-[10px] uppercase tracking-wider font-semibold text-textMuted mb-1">Baseline</label>
+                                            <div class="flex gap-2">
+                                                <select x-model="compareSettings.baseYear" class="w-full rounded px-2 py-1.5 text-xs bg-appBase border border-appBorder text-white focus:border-accent transition-all">
+                                                    <template x-for="y in availableYears"><option :value="y" x-text="y"></option></template>
+                                                </select>
+                                                <select x-model="compareSettings.baseExam" class="w-full rounded px-2 py-1.5 text-xs bg-appBase border border-appBorder text-white focus:border-accent transition-all">
+                                                    <option value="Half-Yearly">Half-Yearly</option><option value="Annual">Annual</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] uppercase tracking-wider font-semibold text-accent mb-1">Target</label>
+                                            <div class="flex gap-2">
+                                                <select x-model="compareSettings.targetYear" class="w-full rounded px-2 py-1.5 text-xs bg-appBase border border-accent text-white shadow-glow transition-all">
+                                                    <template x-for="y in availableYears"><option :value="y" x-text="y"></option></template>
+                                                </select>
+                                                <select x-model="compareSettings.targetExam" class="w-full rounded px-2 py-1.5 text-xs bg-appBase border border-accent text-white shadow-glow transition-all">
+                                                    <option value="Half-Yearly">Half-Yearly</option><option value="Annual">Annual</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-[10px] uppercase tracking-wider font-semibold text-accent mb-1">Target</label>
+                                            <div class="flex gap-2">
+                                                <select x-model="compareSettings.targetYear" class="w-full rounded px-2 py-1.5 text-xs border-accent/30 text-white">
+                                                    <template x-for="y in availableYears"><option :value="y" x-text="y"></option></template>
+                                                </select>
+                                                <select x-model="compareSettings.targetExam" class="w-full rounded px-2 py-1.5 text-xs border-accent/30 text-white">
+                                                    <option value="Half-Yearly">Half-Yearly</option><option value="Annual">Annual</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button @click="drawCharts()" class="bg-appElevated border border-appBorder hover:bg-appBorderHover text-white px-5 py-2 rounded-lg text-sm transition-colors w-full md:w-auto h-full mt-auto">
+                                        Analyze
+                                    </button>
+                                </div>
+
+                                <template x-if="!analysisData">
+                                    <div class="text-sm text-textMuted py-4">Selected records not found.</div>
+                                </template>
+
+                                <template x-if="analysisData">
+                                    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+                                        
+                                        <!-- Table -->
+                                        <div class="stagger-animate lg:col-span-3 bg-appBase rounded-xl border border-appBorder overflow-hidden">
+                                            <table class="w-full text-left text-sm">
+                                                <thead class="bg-appElevated/30 border-b border-appBorder">
+                                                    <tr>
+                                                        <th class="px-4 py-3 font-medium text-textMuted text-xs">Subject</th>
+                                                        <th class="px-4 py-3 text-right font-medium text-textMuted text-xs">Base</th>
+                                                        <th class="px-4 py-3 text-right font-medium text-textMuted text-xs">Target</th>
+                                                        <th class="px-4 py-3 text-right font-medium text-textMuted text-xs">Δ</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-appBorder/50">
+                                                    <template x-for="sub in analysisData.subjects" :key="sub.name">
+                                                        <tr class="hover:bg-appElevated/20 transition-colors">
+                                                            <td class="px-4 py-3 font-medium text-white" x-text="sub.name"></td>
+                                                            <td class="px-4 py-3 text-right text-textMuted font-mono text-xs" x-text="sub.pPct !== null ? sub.pPct.toFixed(1)+'%' : '-'"></td>
+                                                            <td class="px-4 py-3 text-right text-white font-mono text-xs" x-text="sub.cPct.toFixed(1)+'%'"></td>
+                                                            <td class="px-4 py-3 text-right">
+                                                                <template x-if="sub.state === 'up'">
+                                                                    <span class="inline-flex items-center justify-end gap-1 text-success text-xs font-mono w-full">
+                                                                        <i class="ph ph-trend-up"></i> +<span x-text="sub.diff.toFixed(1)"></span>
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="sub.state === 'down'">
+                                                                    <span class="inline-flex items-center justify-end gap-1 text-danger text-xs font-mono w-full">
+                                                                        <i class="ph ph-trend-down"></i> <span x-text="sub.diff.toFixed(1)"></span>
+                                                                    </span>
+                                                                </template>
+                                                                <template x-if="sub.state === 'flat'">
+                                                                    <span class="text-textMuted text-xs font-mono">0.0</span>
+                                                                </template>
+                                                                 <template x-if="sub.state === 'new'">
+                                                                    <span class="text-textMuted text-[10px] uppercase">New</span>
+                                                                </template>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <!-- Chart -->
+                                        <div class="stagger-animate lg:col-span-2 space-y-4">
+                                            <div class="bg-appBase p-5 rounded-xl border border-appBorder">
+                                                 <div class="h-64 w-full"><canvas id="chart-comp"></canvas></div>
+                                            </div>
+                                            
+                                            <div class="bg-appBase p-4 rounded-xl border border-appBorder flex items-center justify-between">
+                                                <span class="text-sm text-textMuted">Overall Shift</span>
+                                                <span class="text-lg font-mono font-semibold" 
+                                                      :class="analysisData.overallDiff > 0 ? 'text-success' : (analysisData.overallDiff < 0 ? 'text-danger' : 'text-white')"
+                                                      x-text="(analysisData.overallDiff > 0 ? '+' : '') + analysisData.overallDiff.toFixed(2) + ' pp'">
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="currentView === 'history'">
+                        <div class="stagger-animate mb-8">
+                            <h2 class="text-2xl font-semibold text-white tracking-tight">Records</h2>
+                            <p class="text-textMuted text-sm mt-1">Complete academic history.</p>
+                        </div>
+
+                        <div class="space-y-4">
+                            <template x-for="(record, idx) in timelineData" :key="record.id">
+                                <div class="stagger-animate bg-appBase border border-appBorder rounded-xl overflow-hidden" :style="`animation-delay: ${idx * 50}ms`">
+                                    <div class="px-5 py-4 flex items-center justify-between bg-appElevated/20 border-b border-appBorder/50">
+                                        <div class="flex items-center gap-3">
+                                            <span class="px-2 py-1 bg-appElevated border border-appBorder rounded text-[10px] font-mono text-textMuted uppercase tracking-wider" x-text="record.year"></span>
+                                            <span class="font-medium text-white text-sm" x-text="record.exam"></span>
+                                        </div>
+                                        <div class="flex items-center gap-4">
+                                            <span class="font-mono text-lg font-semibold text-white" x-text="record.percentage + '%'"></span>
+                                            <button @click="removeRecord(record.id)" class="text-textMuted hover:text-danger transition-colors p-1" title="Delete">
+                                                <i class="ph ph-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="p-5 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                        <template x-for="sub in record.subjects" :key="sub.name">
+                                            <div class="flex flex-col">
+                                                <span class="text-xs text-textMuted mb-1 truncate" x-text="sub.name"></span>
+                                                <div class="flex items-baseline gap-1">
+                                                    <span class="text-sm font-mono text-white" x-text="sub.obtained"></span>
+                                                    <span class="text-[10px] font-mono text-appBorderHover">/80</span>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                            
+                            <template x-if="timelineData.length === 0">
+                                <div class="stagger-animate border border-appBorder rounded-xl p-6 text-sm text-textMuted text-center bg-appBase">
+                                    No records found.
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div x-show="currentView === 'settings'">
+                        <div class="stagger-animate mb-8">
+                            <h2 class="text-2xl font-semibold text-white tracking-tight">Settings</h2>
+                            <p class="text-textMuted text-sm mt-1">Manage profile and preferences.</p>
+                        </div>
+
+                        <div class="stagger-animate bg-appBase border border-appBorder rounded-xl max-w-xl p-6">
+                            <form @submit.prevent="updateProfile" class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-textMuted mb-1.5">Full Name</label>
+                                    <input type="text" x-model="profile.name" required placeholder="Student Name"
+                                           class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-medium text-textMuted mb-1.5">Class</label>
+                                        <input type="text" x-model="profile.class" required placeholder="e.g. 10"
+                                               class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-textMuted mb-1.5">Section</label>
+                                        <input type="text" x-model="profile.section" placeholder="e.g. A"
+                                               class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-xs font-medium text-textMuted mb-1.5">Roll Number</label>
+                                    <input type="text" x-model="profile.roll" placeholder="Identifier"
+                                           class="w-full rounded-md px-3 py-2 text-sm bg-appBase border border-appBorder text-white placeholder:text-textMuted focus:border-accent transition-all">
+                                </div>
+                                
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-medium text-textMuted mb-1.5">Class</label>
+                                        <input type="text" x-model="profile.class" required placeholder="e.g. 10"
+                                               class="w-full rounded-md px-3 py-2 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-textMuted mb-1.5">Section</label>
+                                        <input type="text" x-model="profile.section" placeholder="e.g. A"
+                                               class="w-full rounded-md px-3 py-2 text-sm">
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-xs font-medium text-textMuted mb-1.5">Roll Number</label>
+                                    <input type="text" x-model="profile.roll" placeholder="Identifier"
+                                           class="w-full rounded-md px-3 py-2 text-sm">
+                                </div>
+
+                                <div class="pt-4 mt-2 flex justify-end">
+                                    <button type="submit" :disabled="isProcessing"
+                                            class="bg-accent text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-accentHover transition-colors flex items-center gap-2 shadow-accent">
+                                        <i x-show="isProcessing" class="ph ph-spinner animate-spin"></i>
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                </main>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
